@@ -14,7 +14,7 @@ local CSI = ESC .. "%["
 
 local function handle_arg(default, callback)
     return function(control)
-        local count = tonumber(control:sub(3, 3), 10)
+        local count = tonumber(control:sub(3, control:len()-1), 10)
         if count then
             callback(count, control)
         else
@@ -43,6 +43,7 @@ function TerminalView:new()
     end
 
     self.handler = {
+        -- Basic ASCII
         ["[%g ]"] = function(char)
             self.buffer[self.cursor_col][self.cursor_row] = char
             self.cursor_col = self.cursor_col + 1
@@ -59,7 +60,39 @@ function TerminalView:new()
         ["\a"] = function()
             core.log("BELL!")
         end,
-        [CSI .. "%d?K"] = handle_arg(0, function(mode)
+
+        -- Cursor Positioning
+        [CSI .. "%d+A"] = handle_arg(1, function(count)
+            self.cursor_col = self.cursor_row - count
+        end),
+        [CSI .. "%d+B"] = handle_arg(1, function(count)
+            self.cursor_col = self.cursor_row + count
+        end),
+        [CSI .. "%d+C"] = handle_arg(1, function(count)
+            self.cursor_col = self.cursor_col + count
+        end),
+        [CSI .. "%d+D"] = handle_arg(1, function(count)
+            self.cursor_col = self.cursor_col - count
+        end),
+
+        -- Text Modification
+        [CSI .. "%d+@"] = handle_arg(1, function(count)
+            for i = self.columns, self.cursor_col + count, -1 do
+                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
+            end
+            for i = self.cursor_col, self.cursor_col + count - 1 do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end),
+        [CSI .. "%d+P"] = handle_arg(1, function(count)
+            for i = self.cursor_col + count, self.columns do
+                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
+            end
+            for i = self.columns - count, self.columns do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end),
+        [CSI .. "%d+K"] = handle_arg(0, function(mode)
             if mode == 0 then
                 for i = self.cursor_col, self.columns do
                     self.buffer[i][self.cursor_row] = " "
@@ -68,25 +101,8 @@ function TerminalView:new()
                 core.log("TODO! " .. mode)
             end
         end),
-        [CSI .. "%d?C"] = handle_arg(1, function(count)
-            self.cursor_col = self.cursor_col + count
-        end),
-        [CSI .. "%d?@"] = handle_arg(1, function(count)
-            for i = self.columns, self.cursor_col + count, -1 do
-                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
-            end
-            for i = self.cursor_col, self.cursor_col + count - 1 do
-                self.buffer[i][self.cursor_row] = " "
-            end
-        end),
-        [CSI .. "%d?P"] = handle_arg(1, function(count)
-            for i = self.cursor_col + count, self.columns do
-                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
-            end
-            for i = self.columns - count, self.columns do
-                self.buffer[i][self.cursor_row] = " "
-            end
-        end),
+
+        -- IDK
         [ESC .. "]%d;"] = function(control)
             core.log("IDEK!")
         end,
@@ -138,14 +154,6 @@ function TerminalView:display_string(str)
             core.log("ERROR: " .. string.byte(str, i, i) .. ", " .. str:sub(i, str:len()))
             return
         end
-    end
-end
-
-function TerminalView:advance_cursor()
-    self.cursor_col = self.cursor_col + 1
-    if self.cursor_col >= self.columns then
-        self.cursor_col = 0
-        self.cursor_row = self.cursor_row + 1
     end
 end
 
