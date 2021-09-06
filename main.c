@@ -30,6 +30,7 @@ int main() {
             }
         }
     } else {
-        execl("/bin/sh", "sh", NULL);
+        execl("/usr/bin/python3", "python3", NULL);
+        // execl("/bin/bash", "bash", NULL);
     }
 }

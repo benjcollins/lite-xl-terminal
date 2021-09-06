@@ -9,144 +9,192 @@ local View = require "core.view"
 
 local TerminalView = View:extend()
 
-function TerminalView:new()
-  TerminalView.super.new(self)
-  self.scrollable = true
+local ESC = "\x1b"
+local CSI = ESC .. "%["
 
-  self.proc = assert(process.start({ DATADIR .. "/plugins/terminal/terminal" }, {}))
-
-  self.columns = 120
-  self.rows = 100
-  self.buffer = {}
-  self.cursor_col = 0
-  self.cursor_row = 0
-  self.entry = ""
-
-  for col = 0, self.columns do
-    self.buffer[col] = {}
-    for row = 0, self.rows do
-      self.buffer[col][row] = " "
+local function handle_arg(default, callback)
+    return function(control)
+        local count = tonumber(control:sub(3, 3), 10)
+        if count then
+            callback(count, control)
+        else
+            callback(default, control)
+        end
     end
-  end
+end
+
+function TerminalView:new()
+    TerminalView.super.new(self)
+    self.scrollable = true
+
+    self.proc = assert(process.start({ DATADIR .. "/plugins/terminal/terminal" }, {}))
+
+    self.columns = 80
+    self.rows = 24
+    self.buffer = {}
+    self.cursor_col = 0
+    self.cursor_row = 0
+
+    for col = 0, self.columns do
+        self.buffer[col] = {}
+        for row = 0, self.rows do
+            self.buffer[col][row] = " "
+        end
+    end
+
+    self.handler = {
+        ["[%g ]"] = function(char)
+            self.buffer[self.cursor_col][self.cursor_row] = char
+            self.cursor_col = self.cursor_col + 1
+        end,
+        ["\n"] = function()
+            self.cursor_row = self.cursor_row + 1
+        end,
+        ["\b"] = function()
+            self.cursor_col = self.cursor_col - 1
+        end,
+        ["\r"] = function()
+            self.cursor_col = 0
+        end,
+        ["\a"] = function()
+            core.log("BELL!")
+        end,
+        [CSI .. "%d?K"] = handle_arg(0, function(mode)
+            if mode == 0 then
+                for i = self.cursor_col, self.columns do
+                    self.buffer[i][self.cursor_row] = " "
+                end
+            else
+                core.log("TODO! " .. mode)
+            end
+        end),
+        [CSI .. "%d?C"] = handle_arg(1, function(count)
+            self.cursor_col = self.cursor_col + count
+        end),
+        [CSI .. "%d?@"] = handle_arg(1, function(count)
+            for i = self.columns, self.cursor_col + count, -1 do
+                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
+            end
+            for i = self.cursor_col, self.cursor_col + count - 1 do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end),
+        [CSI .. "%d?P"] = handle_arg(1, function(count)
+            for i = self.cursor_col + count, self.columns do
+                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
+            end
+            for i = self.columns - count, self.columns do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end),
+        [ESC .. "]%d;"] = function(control)
+            core.log("IDEK!")
+        end,
+        [CSI .. "%?%d+h"] = function(control)
+            core.log(control)
+        end
+    }
 end
 
 function TerminalView:try_close(...)
-  TerminalView.super.try_close(self, ...)
+    self.proc:kill()
+    TerminalView.super.try_close(self, ...)
 end
 
 function TerminalView:get_name()
-  return "Terminal"
+    return "Terminal"
 end
 
 function TerminalView:update(...)
-  TerminalView.super.update(self, ...)
-  if not self.proc:running() then
-    core.log("KILLED!")
-  end
-  local output = self.proc:read_stdout()
-  if output then
-    self:display_string(output)
-  end
+    TerminalView.super.update(self, ...)
+    local output = self.proc:read_stdout()
+    if output then
+        self:display_string(output)
+    end
 end
 
 function TerminalView:on_text_input(text)
-  self:input_string(text)
-end
-
-local function is_printable(char)
-  local byte = string.byte(char)
-  return byte >= 20 and byte <= 126
+    self:input_string(text)
 end
 
 function TerminalView:input_string(str)
-  -- for i = 1, string.len(str) do
-  --   local char = string.sub(str, i, i)
-  --   if char == "\n" then
-  --     self.proc:write(self.entry .. "\n")
-  --     self.entry = ""
-  --   elseif char == "\b" then
-  --     self.entry = self.entry:sub(0, self.entry:len()-1)
-  --   elseif is_printable(char) then
-  --     self.entry = self.entry .. char
-  --   end
-  --   self:display_string(char)
-  -- end
-  self.proc:write(str)
+    self.proc:write(str)
 end
 
 function TerminalView:display_string(str)
-  local ESCAPE = string.char(27)
-  for i = 1, string.len(str) do
-    local char = str:sub(i, i)
-    if char == "\n" then
-      self.cursor_col = 0
-      self.cursor_row = self.cursor_row + 1
-    elseif char == "\b" then
-      self.cursor_col = self.cursor_col - 1
-      self:insert(" ")
-    elseif char == ESCAPE then
-      core.log("ESCAPE SEQUENCE!")
-    elseif is_printable(char) then
-      self:insert(char)
-      self:advance_cursor()
+    local i = 1
+    while i <= str:len() do
+        local found = false
+        for pattern, func in pairs(self.handler) do
+            local first, last = str:find(pattern, i)
+            if first == i then
+                func(str:sub(first, last))
+                i = i + last - first + 1
+                found = true
+                break
+            end
+        end
+        if not found then
+            core.log("ERROR: " .. string.byte(str, i, i) .. ", " .. str:sub(i, str:len()))
+            return
+        end
     end
-  end
 end
 
 function TerminalView:advance_cursor()
-  self.cursor_col = self.cursor_col + 1
-  if self.cursor_col >= self.columns then
-    self.cursor_col = 0
-    self.cursor_row = self.cursor_row + 1
-  end
-end
-
-function TerminalView:insert(char)
-  self.buffer[self.cursor_col][self.cursor_row] = char
+    self.cursor_col = self.cursor_col + 1
+    if self.cursor_col >= self.columns then
+        self.cursor_col = 0
+        self.cursor_row = self.cursor_row + 1
+    end
 end
 
 function TerminalView:draw()
-  self:draw_background(style.background)
+    self:draw_background(style.background)
 
-  local offx, offy = self:get_content_offset()
-  local row_height = style.code_font:get_height()
-  local col_width = style.code_font:get_width_subpixel(" ") / style.code_font:subpixel_scale()
+    local offx, offy = self:get_content_offset()
+    local row_height = style.code_font:get_height()
+    local col_width = style.code_font:get_width_subpixel(" ") / style.code_font:subpixel_scale()
 
-  for row = 0, self.rows do
-    local line = ""
-    for col = 0, self.columns do
-      line = line .. self.buffer[col][row]
-      if self.cursor_col == col and self.cursor_row == row then
-        renderer.draw_rect(offx + col * col_width, offy + row_height * row, col_width, row_height, style.caret)
-      end
+    renderer.draw_rect(offx + self.cursor_col * col_width, offy + row_height * self.cursor_row, col_width, row_height, style.caret);
+
+    for row = 0, self.rows do
+        local line = ""
+        for col = 0, self.columns do
+            line = line .. self.buffer[col][row]
+        end
+        common.draw_text(style.code_font, style.text, line, "left", offx, offy + (row + 0.5) * row_height, 0, 0)
     end
-    common.draw_text(style.code_font, style.text, line, "left", offx, offy + (row + 0.5) * row_height, 0, 0)
-  end
 
 end
 
 local function predicate()
-  return getmetatable(core.active_view) == TerminalView
+    return getmetatable(core.active_view) == TerminalView
 end
 
 command.add(nil, {
-  ["terminal:new"] = function()
-    local node = core.root_view:get_active_node()
-    node:add_view(TerminalView())
-  end
+    ["terminal:new"] = function()
+        local node = core.root_view:get_active_node()
+        node:add_view(TerminalView())
+    end
 })
 
 command.add(predicate, {
-  ["terminal:return"] = function()
-    core.active_view:input_string("\n")
-  end,
-  ["terminal:backspace"] = function()
-    core.active_view:input_string("\b")
-  end,
+    ["terminal:return"] = function()
+        core.active_view:input_string("\n")
+    end,
+    ["terminal:left"] = function()
+        core.active_view:input_string(ESC .. "OD")
+    end,
+    ["terminal:backspace"] = function()
+        core.active_view:input_string("\b")
+    end,
 })
 
 keymap.add({
-  ["return"] = "terminal:return",
-  ["backspace"] = "terminal:backspace",
-  ["ctrl+t"] = "terminal:new",
+    ["return"] = "terminal:return",
+    ["backspace"] = "terminal:backspace",
+    ["left"] = "terminal:left",
+
+    ["ctrl+t"] = "terminal:new",
 })
