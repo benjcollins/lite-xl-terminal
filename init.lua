@@ -42,6 +42,53 @@ function TerminalView:new()
         end
     end
 
+    self.escape_handler = {
+
+        -- Cursor Positioning
+        ["A"] = function(args)
+            self.cursor_row = self.cursor_row - (args[0] or 1)
+        end,
+        ["B"] = function(args)
+            self.cursor_row = self.cursor_row + (args[0] or 1)
+        end,
+        ["C"] = function(args)
+            self.cursor_col = self.cursor_col + (args[0] or 1)
+        end,
+        ["D"] = function(args)
+            self.cursor_col = self.cursor_col - (args[0] or 1)
+        end,
+
+        -- Text Modification
+        ["K"] = function(args)
+            local mode = args[0] or 0
+            if mode == 0 then
+                for i = self.cursor_col, self.columns do
+                    self.buffer[i][self.cursor_row] = " "
+                end
+            else
+                core.log("TODO! " .. mode)
+            end
+        end,
+        ["@"] = function(args)
+            local count = args[0] or 1
+            for i = self.columns, self.cursor_col + count, -1 do
+                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
+            end
+            for i = self.cursor_col, self.cursor_col + count - 1 do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end,
+        ["P"] = function(args)
+            local count = args[0] or 1
+            for i = self.cursor_col + count, self.columns do
+                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
+            end
+            for i = self.columns - count, self.columns do
+                self.buffer[i][self.cursor_row] = " "
+            end
+        end,
+    }
+
     self.handler = {
         -- Basic ASCII
         ["[%g ]"] = function(char)
@@ -60,55 +107,6 @@ function TerminalView:new()
         ["\a"] = function()
             core.log("BELL!")
         end,
-
-        -- Cursor Positioning
-        [CSI .. "%d+A"] = handle_arg(1, function(count)
-            self.cursor_col = self.cursor_row - count
-        end),
-        [CSI .. "%d+B"] = handle_arg(1, function(count)
-            self.cursor_col = self.cursor_row + count
-        end),
-        [CSI .. "%d+C"] = handle_arg(1, function(count)
-            self.cursor_col = self.cursor_col + count
-        end),
-        [CSI .. "%d+D"] = handle_arg(1, function(count)
-            self.cursor_col = self.cursor_col - count
-        end),
-
-        -- Text Modification
-        [CSI .. "%d+@"] = handle_arg(1, function(count)
-            for i = self.columns, self.cursor_col + count, -1 do
-                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
-            end
-            for i = self.cursor_col, self.cursor_col + count - 1 do
-                self.buffer[i][self.cursor_row] = " "
-            end
-        end),
-        [CSI .. "%d+P"] = handle_arg(1, function(count)
-            for i = self.cursor_col + count, self.columns do
-                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
-            end
-            for i = self.columns - count, self.columns do
-                self.buffer[i][self.cursor_row] = " "
-            end
-        end),
-        [CSI .. "%d+K"] = handle_arg(0, function(mode)
-            if mode == 0 then
-                for i = self.cursor_col, self.columns do
-                    self.buffer[i][self.cursor_row] = " "
-                end
-            else
-                core.log("TODO! " .. mode)
-            end
-        end),
-
-        -- IDK
-        [ESC .. "]%d;"] = function(control)
-            core.log("IDEK!")
-        end,
-        [CSI .. "%?%d+h"] = function(control)
-            core.log(control)
-        end
     }
 end
 
@@ -139,15 +137,58 @@ end
 
 function TerminalView:display_string(str)
     local i = 1
+    local args = {}
+    local arg_i = 0
+
+    local function eat(pattern)
+        local first, last = str:find(pattern, i)
+        if first == i then
+            i = last + 1
+            return str:sub(first, last)
+        else
+            return nil
+        end
+    end
+
+    local function parse_arg()
+        local arg = tonumber(eat("%d*", 10))
+        if arg then
+            args[arg_i] = arg
+            arg_i = arg_i + 1
+            return true
+        else
+            return false
+        end
+    end
+
     while i <= str:len() do
         local found = false
         for pattern, func in pairs(self.handler) do
-            local first, last = str:find(pattern, i)
-            if first == i then
-                func(str:sub(first, last))
-                i = i + last - first + 1
+            local match = eat(pattern)
+            if match then
+                func(match)
                 found = true
                 break
+            end
+        end
+        if not found and eat("\x1b%[") then
+            found = true
+            args = {}
+            arg_i = 0
+            if parse_arg() then
+                while eat(";") do
+                    if not parse_arg() then
+                        core.log("Escape sequence missing argument!")
+                    end
+                end
+            end
+            command = eat("%g")
+            core.log(command .. " " .. (args[0] or 1))
+            local handler = self.escape_handler[command]
+            if handler then
+                handler(args)
+            else
+                core.log("Missing handler for escape sequence " .. command)
             end
         end
         if not found then
@@ -191,7 +232,16 @@ command.add(predicate, {
     ["terminal:return"] = function()
         core.active_view:input_string("\n")
     end,
+    ["terminal:up"] = function()
+        core.active_view:input_string(ESC .. "OA")
+    end,
+    ["terminal:down"] = function()
+        core.active_view:input_string(ESC .. "OB")
+    end,
     ["terminal:left"] = function()
+        core.active_view:input_string(ESC .. "OC")
+    end,
+    ["terminal:right"] = function()
         core.active_view:input_string(ESC .. "OD")
     end,
     ["terminal:backspace"] = function()
@@ -202,7 +252,10 @@ command.add(predicate, {
 keymap.add({
     ["return"] = "terminal:return",
     ["backspace"] = "terminal:backspace",
+    ["up"] = "terminal:up",
+    ["down"] = "terminal:down",
     ["left"] = "terminal:left",
+    ["right"] = "terminal:right",
 
     ["ctrl+t"] = "terminal:new",
 })
