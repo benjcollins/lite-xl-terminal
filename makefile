@@ -1,4 +1,3 @@
-CC=gcc
 CFLAGS=-lutil
 
 terminal: terminal.c
