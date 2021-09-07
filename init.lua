@@ -11,6 +11,17 @@ local TerminalView = View:extend()
 
 local ESC = "\x1b"
 
+local COLORS = {
+    { ["dark"] = { common.color "#000000" }, ["bright"] = { common.color "#555753" }, ["name"] = "black" },
+    { ["dark"] = { common.color "#cc0000" }, ["bright"] = { common.color "#ef2929" }, ["name"] = "red" },
+    { ["dark"] = { common.color "#4e9a06" }, ["bright"] = { common.color "#8ae234" }, ["name"] = "green" },
+    { ["dark"] = { common.color "#c4a000" }, ["bright"] = { common.color "#fce94f" }, ["name"] = "yellow" },
+    { ["dark"] = { common.color "#3465a4" }, ["bright"] = { common.color "#729fcf" }, ["name"] = "blue" },
+    { ["dark"] = { common.color "#75507b" }, ["bright"] = { common.color "#ad7fa8" }, ["name"] = "magenta" },
+    { ["dark"] = { common.color "#06989a" }, ["bright"] = { common.color "#34e2e2" }, ["name"] = "cyan" },
+    { ["dark"] = { common.color "#d3d7cf" }, ["bright"] = { common.color "#eeeeec" }, ["name"] = "white" },
+}
+
 function TerminalView:new()
     TerminalView.super.new(self)
     self.scrollable = true
@@ -20,16 +31,19 @@ function TerminalView:new()
     self.columns = 80
     self.rows = 24
     self.buffer = {}
-    self.cursor_col = 0
-    self.cursor_row = 0
+    self.cursor_col = 1
+    self.cursor_row = 1
     self.last_blink = os.time()
     self.cursor_visible = true
     self.blink_cursor = true
+    self.fg = style.text
+    self.bg = style.background
+    self.inverted = false
 
-    for col = 0, self.columns do
+    for col = 1, self.columns do
         self.buffer[col] = {}
-        for row = 0, self.rows do
-            self.buffer[col][row] = " "
+        for row = 1, self.rows do
+            self.buffer[col][row] = self:new_formatted_char(" ")
         end
     end
 
@@ -48,16 +62,29 @@ function TerminalView:new()
         ["D"] = function(args)
             self.cursor_col = self.cursor_col - (args[0] or 1)
         end,
+        ["H"] = function(args)
+            self.cursor_col = args[0] or 1
+            self.cursor_row = args[0] or 1
+        end,
 
         -- Text Modification
         ["K"] = function(args)
+            self:delete_current_line(args[0] or 0)
+        end,
+        ["J"] = function(args)
             local mode = args[0] or 0
+            self:delete_current_line(mode)
+            local first = 1
+            local last = self.rows
             if mode == 0 then
-                for i = self.cursor_col, self.columns do
-                    self.buffer[i][self.cursor_row] = " "
+                first = self.cursor_row + 1
+            elseif mode == 1 then
+                last = self.cursor_row
+            end
+            for row = first, last do
+                for col = 1, self.columns do
+                    self.buffer[col][row] = self:new_formatted_char(" ")
                 end
-            else
-                core.log("TODO! " .. mode)
             end
         end,
         ["@"] = function(args)
@@ -66,7 +93,7 @@ function TerminalView:new()
                 self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
             end
             for i = self.cursor_col, self.cursor_col + count - 1 do
-                self.buffer[i][self.cursor_row] = " "
+                self.buffer[i][self.cursor_row].value = " "
             end
         end,
         ["P"] = function(args)
@@ -75,7 +102,32 @@ function TerminalView:new()
                 self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
             end
             for i = self.columns - count, self.columns do
-                self.buffer[i][self.cursor_row] = " "
+                self.buffer[i][self.cursor_row].value = " "
+            end
+        end,
+
+        -- Text Formatting
+        ["m"] = function(args)
+            local i = 1
+            while args[i] do
+                local arg = args[i]
+                if arg == 0 then
+                    self.fg = style.text
+                    self.bg = style.background
+                elseif arg == 7 then
+                    self.inverted = true
+                elseif arg == 27 then
+                    self.inverted = false
+                elseif arg > 29 and arg < 38 then
+                    self.fg = COLORS[arg - 29].dark
+                elseif arg > 39 and arg < 48 then
+                    self.bg = COLORS[arg - 39].dark
+                elseif arg > 89 and arg < 98 then
+                    self.fg = COLORS[arg - 89].bright
+                elseif arg > 99 and arg < 108 then
+                    self.bg = COLORS[arg - 99].bright
+                end
+                i = i + 1
             end
         end,
     }
@@ -83,7 +135,7 @@ function TerminalView:new()
     self.handler = {
         -- Basic ASCII
         ["[%g ]"] = function(char)
-            self.buffer[self.cursor_col][self.cursor_row] = char
+            self.buffer[self.cursor_col][self.cursor_row] = self:new_formatted_char(char)
             self.cursor_col = self.cursor_col + 1
         end,
         ["\n"] = function()
@@ -93,7 +145,7 @@ function TerminalView:new()
             self.cursor_col = self.cursor_col - 1
         end,
         ["\r"] = function()
-            self.cursor_col = 0
+            self.cursor_col = 1
         end,
         ["\a"] = function()
             core.log("BELL!")
@@ -101,38 +153,50 @@ function TerminalView:new()
 
         -- Weird escape sequences that don't follow the normal pattern.
         [ESC .. "%[%?12h"] = function()
-            self:enable_blinking()
+            self.blink_cursor = true
+            self.last_blink = os.time()
         end,
         [ESC .. "%[%?12l"] = function()
-            self:disable_blinking()
+            self.blink_cursor = false
+            self.cursor_visible = true
         end,
         [ESC .. "%[%?25h"] = function()
-            self:show_cursor()
+            self.blink_cursor = false
+            self.cursor_visible = true
         end,
         [ESC .. "%[%?25l"] = function()
-            self:hide_cursor()
+            self.blink_cursor = false
+            self.cursor_visible = false
+        end,
+
+        [ESC .. "%]%d*;"] = function()
+            core.log("WTF!")
+        end,
+        [ESC .. "%[%?%d*[hl]"] = function()
+            core.log("Enabling/Disabling stuff.")
         end,
     }
 end
 
-function TerminalView:enable_blinking()
-    self.blink_cursor = true
-    self.last_blink = os.time()
+function TerminalView:delete_current_line(mode)
+    local first = 1
+    local last = self.columns
+    if mode == 0 then
+        first = self.cursor_col
+    elseif mode == 1 then
+        last = self.cursor_col
+    end
+    for i = first, last do
+        self.buffer[i][self.cursor_row] = self:new_formatted_char(" ")
+    end
 end
 
-function TerminalView:disable_blinking()
-    self.blink_cursor = false
-    self.cursor_visible = true
-end
-
-function TerminalView:show_cursor()
-    self.blink_cursor = false
-    self.cursor_visible = true
-end
-
-function TerminalView:hide_cursor()
-    self.blink_cursor = false
-    self.cursor_visible = false
+function TerminalView:new_formatted_char(char)
+    return {
+        bg = self.bg,
+        fg = self.fg,
+        value = char,
+    }
 end
 
 function TerminalView:try_close(...)
@@ -147,7 +211,8 @@ end
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
     local output = self.proc:read_stdout()
-    if output then
+    if output:len() > 0 then
+        core.log(output)
         self:display_string(output)
     end
 
@@ -169,8 +234,8 @@ end
 
 function TerminalView:display_string(str)
     local i = 1
-    local args = {}
-    local arg_i = 0
+    local args
+    local arg_i
 
     local function eat(pattern)
         local first, last = str:find(pattern, i)
@@ -206,7 +271,7 @@ function TerminalView:display_string(str)
         if not found and eat("\x1b%[") then
             found = true
             args = {}
-            arg_i = 0
+            arg_i = 1
             if parse_arg() then
                 while eat(";") do
                     if not parse_arg() then
@@ -237,17 +302,23 @@ function TerminalView:draw()
     local row_height = style.code_font:get_height()
     local col_width = style.code_font:get_width_subpixel(" ") / style.code_font:subpixel_scale()
 
-    renderer.draw_rect(offx + self.cursor_col * col_width, offy + row_height * self.cursor_row, col_width, row_height, style.caret);
-    if not self.cursor_visible then
-        renderer.draw_rect(offx + self.cursor_col * col_width + 1, offy + row_height * self.cursor_row + 1, col_width - 2, row_height - 2, style.background)
+    for row = 1, self.rows do
+        for col = 1, self.columns do
+            local cell = self.buffer[col][row]
+            renderer.draw_rect(offx + (col - 1) * col_width, offy + (row - 1) * row_height, row_height, col_width, cell.bg)
+        end
     end
 
-    for row = 0, self.rows do
-        local line = ""
-        for col = 0, self.columns do
-            line = line .. self.buffer[col][row]
+    renderer.draw_rect(offx + (self.cursor_col - 1) * col_width, offy + row_height * (self.cursor_row - 1), col_width, row_height, style.caret);
+    if not self.cursor_visible then
+        renderer.draw_rect(offx + (self.cursor_col - 1) * col_width + 1, offy + row_height * (self.cursor_row - 1) + 1, col_width - 2, row_height - 2, style.background)
+    end
+
+    for row = 1, self.rows do
+        for col = 1, self.columns do
+            local cell = self.buffer[col][row]
+            common.draw_text(style.code_font, cell.fg, cell.value, "left", offx + (col - 1) * col_width, offy + (row - 0.5) * row_height, 0, 0)
         end
-        common.draw_text(style.code_font, style.text, line, "left", offx, offy + (row + 0.5) * row_height, 0, 0)
     end
 
 end
@@ -273,10 +344,10 @@ command.add(predicate, {
     ["terminal:down"] = function()
         core.active_view:input_string(ESC .. "OB")
     end,
-    ["terminal:left"] = function()
+    ["terminal:right"] = function()
         core.active_view:input_string(ESC .. "OC")
     end,
-    ["terminal:right"] = function()
+    ["terminal:left"] = function()
         core.active_view:input_string(ESC .. "OD")
     end,
     ["terminal:backspace"] = function()

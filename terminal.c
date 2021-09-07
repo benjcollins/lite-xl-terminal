@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define BUFFER_SIZE 256
 
@@ -30,7 +31,11 @@ int main() {
             }
         }
     } else {
-        execl("/usr/bin/python3", "python3", NULL);
-        // execl("/bin/bash", "bash", NULL);
+        // execl("/usr/bin/python3", "python3", NULL);
+        // clearenv();
+        // unsetenv("PROMPT_COMMAND");
+        setenv("TERM", "xterm-256color", 1);
+        // setenv("PS1", "", 1);
+        execl("/bin/bash", "bash", NULL);
     }
 }
