@@ -51,28 +51,28 @@ function TerminalView:new()
 
         -- Cursor Positioning
         ["A"] = function(args)
-            self.cursor_row = self.cursor_row - (args[0] or 1)
+            self.cursor_row = self.cursor_row - (args[1] or 1)
         end,
         ["B"] = function(args)
-            self.cursor_row = self.cursor_row + (args[0] or 1)
+            self.cursor_row = self.cursor_row + (args[1] or 1)
         end,
         ["C"] = function(args)
-            self.cursor_col = self.cursor_col + (args[0] or 1)
+            self.cursor_col = self.cursor_col + (args[1] or 1)
         end,
         ["D"] = function(args)
-            self.cursor_col = self.cursor_col - (args[0] or 1)
+            self.cursor_col = self.cursor_col - (args[1] or 1)
         end,
         ["H"] = function(args)
-            self.cursor_col = args[0] or 1
-            self.cursor_row = args[0] or 1
+            self.cursor_col = args[1] or 1
+            self.cursor_row = args[2] or 1
         end,
 
         -- Text Modification
         ["K"] = function(args)
-            self:delete_current_line(args[0] or 0)
+            self:delete_current_line(args[1] or 0)
         end,
         ["J"] = function(args)
-            local mode = args[0] or 0
+            local mode = args[1] or 0
             self:delete_current_line(mode)
             local first = 1
             local last = self.rows
@@ -88,7 +88,7 @@ function TerminalView:new()
             end
         end,
         ["@"] = function(args)
-            local count = args[0] or 1
+            local count = args[1] or 1
             for i = self.columns, self.cursor_col + count, -1 do
                 self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
             end
@@ -97,7 +97,7 @@ function TerminalView:new()
             end
         end,
         ["P"] = function(args)
-            local count = args[0] or 1
+            local count = args[1] or 1
             for i = self.cursor_col + count, self.columns do
                 self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
             end
@@ -151,29 +151,32 @@ function TerminalView:new()
             core.log("BELL!")
         end,
 
-        -- Weird escape sequences that don't follow the normal pattern.
-        [ESC .. "%[%?12h"] = function()
-            self.blink_cursor = true
-            self.last_blink = os.time()
+        -- Enabling/Disabling stuff...
+        [ESC .. "%[%?(%d+)h"] = function(option)
+            if option == 12 then
+                self.blink_cursor = true
+                self.last_blink = os.time()
+            elseif option == 25 then
+                self.cursor_visible = true
+            else
+                core.log("ENABLE: " .. option)
+            end
         end,
-        [ESC .. "%[%?12l"] = function()
-            self.blink_cursor = false
-            self.cursor_visible = true
-        end,
-        [ESC .. "%[%?25h"] = function()
-            self.blink_cursor = false
-            self.cursor_visible = true
-        end,
-        [ESC .. "%[%?25l"] = function()
-            self.blink_cursor = false
-            self.cursor_visible = false
+        [ESC .. "%[%?(%d+)l"] = function(option)
+            if option == 12 then
+                self.blink_cursor = false
+                self.cursor_visible = true
+            elseif option == 25 then
+                self.blink_cursor = false
+                self.cursor_visible = false
+            else
+                core.log("DISABLE: " .. option)
+            end
         end,
 
-        [ESC .. "%]%d*;"] = function()
+        -- Weird escape sequences that don't follow the normal pattern.
+        [ESC .. "%]0;"] = function()
             core.log("WTF!")
-        end,
-        [ESC .. "%[%?%d*[hl]"] = function()
-            core.log("Enabling/Disabling stuff.")
         end,
     }
 end
@@ -235,23 +238,22 @@ end
 function TerminalView:display_string(str)
     local i = 1
     local args
-    local arg_i
 
     local function eat(pattern)
-        local first, last = str:find(pattern, i)
+        local first, last = str:find("^" .. pattern, i)
+        local captures = { str:match("^" .. pattern, i) }
         if first == i then
             i = last + 1
-            return str:sub(first, last)
+            return table.unpack(captures)
         else
             return nil
         end
     end
 
     local function parse_arg()
-        local arg = tonumber(eat("%d*", 10))
+        local arg = tonumber(eat("%d+", 10))
         if arg then
-            args[arg_i] = arg
-            arg_i = arg_i + 1
+            args[#args + 1] = arg
             return true
         else
             return false
@@ -261,9 +263,9 @@ function TerminalView:display_string(str)
     while i <= str:len() do
         local found = false
         for pattern, func in pairs(self.handler) do
-            local match = eat(pattern)
-            if match then
-                func(match)
+            local captures = { eat(pattern) }
+            if captures[1] then
+                func(table.unpack(captures))
                 found = true
                 break
             end
@@ -271,7 +273,6 @@ function TerminalView:display_string(str)
         if not found and eat("\x1b%[") then
             found = true
             args = {}
-            arg_i = 1
             if parse_arg() then
                 while eat(";") do
                     if not parse_arg() then
@@ -280,7 +281,7 @@ function TerminalView:display_string(str)
                 end
             end
             command = eat("%g")
-            core.log(command .. " " .. (args[0] or 1))
+            core.log(command .. " " .. (args[1] or 1))
             local handler = self.escape_handler[command]
             if handler then
                 handler(args)
