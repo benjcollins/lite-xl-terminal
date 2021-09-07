@@ -10,18 +10,6 @@ local View = require "core.view"
 local TerminalView = View:extend()
 
 local ESC = "\x1b"
-local CSI = ESC .. "%["
-
-local function handle_arg(default, callback)
-    return function(control)
-        local count = tonumber(control:sub(3, control:len()-1), 10)
-        if count then
-            callback(count, control)
-        else
-            callback(default, control)
-        end
-    end
-end
 
 function TerminalView:new()
     TerminalView.super.new(self)
@@ -34,6 +22,9 @@ function TerminalView:new()
     self.buffer = {}
     self.cursor_col = 0
     self.cursor_row = 0
+    self.last_blink = os.time()
+    self.cursor_visible = true
+    self.blink_cursor = true
 
     for col = 0, self.columns do
         self.buffer[col] = {}
@@ -107,7 +98,41 @@ function TerminalView:new()
         ["\a"] = function()
             core.log("BELL!")
         end,
+
+        -- Weird escape sequences that don't follow the normal pattern.
+        [ESC .. "%[%?12h"] = function()
+            self:enable_blinking()
+        end,
+        [ESC .. "%[%?12l"] = function()
+            self:disable_blinking()
+        end,
+        [ESC .. "%[%?25h"] = function()
+            self:show_cursor()
+        end,
+        [ESC .. "%[%?25l"] = function()
+            self:hide_cursor()
+        end,
     }
+end
+
+function TerminalView:enable_blinking()
+    self.blink_cursor = true
+    self.last_blink = os.time()
+end
+
+function TerminalView:disable_blinking()
+    self.blink_cursor = false
+    self.cursor_visible = true
+end
+
+function TerminalView:show_cursor()
+    self.blink_cursor = false
+    self.cursor_visible = true
+end
+
+function TerminalView:hide_cursor()
+    self.blink_cursor = false
+    self.cursor_visible = false
 end
 
 function TerminalView:try_close(...)
@@ -124,6 +149,13 @@ function TerminalView:update(...)
     local output = self.proc:read_stdout()
     if output then
         self:display_string(output)
+    end
+
+    local now = os.time()
+    if now > self.last_blink and self.blink_cursor then
+        self.cursor_visible = not self.cursor_visible
+        self.last_blink = now
+        core.redraw = true
     end
 end
 
@@ -206,6 +238,9 @@ function TerminalView:draw()
     local col_width = style.code_font:get_width_subpixel(" ") / style.code_font:subpixel_scale()
 
     renderer.draw_rect(offx + self.cursor_col * col_width, offy + row_height * self.cursor_row, col_width, row_height, style.caret);
+    if not self.cursor_visible then
+        renderer.draw_rect(offx + self.cursor_col * col_width + 1, offy + row_height * self.cursor_row + 1, col_width - 2, row_height - 2, style.background)
+    end
 
     for row = 0, self.rows do
         local line = ""
