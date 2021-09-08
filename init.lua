@@ -245,8 +245,7 @@ end
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
     local output = assert(self.proc:read_stdout())
-    if output and output:len() > 0 then
-        core.log("")
+    if output:len() > 0 then
         self:display_string(output)
     end
 
@@ -264,6 +263,10 @@ end
 
 function TerminalView:input_string(str)
     self.proc:write(str)
+end
+
+local function sanitise(str)
+    return str:gsub("%%", "%%%%")
 end
 
 function TerminalView:display_string(str)
@@ -322,7 +325,7 @@ function TerminalView:display_string(str)
         end
         if not found then
             -- core.log("ERROR: " .. i)
-            core.log("ERROR: " .. str:sub(i, str:len()))
+            core.log("ERROR: " .. sanitise(str:sub(i, str:len())))
             return
         end
     end
