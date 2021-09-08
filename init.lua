@@ -33,12 +33,14 @@ function TerminalView:new()
     self.buffer = {}
     self.cursor_col = 1
     self.cursor_row = 1
+    self.saved_cursor = { col = 1, row = 1 }
     self.last_blink = os.time()
     self.cursor_visible = true
     self.blink_cursor = false
     self.fg = style.text
     self.bg = style.background
     self.title = "Terminal"
+    self.log = io.open("log.txt", "w")
 
     for col = 1, self.columns do
         self.buffer[col] = {}
@@ -115,17 +117,19 @@ function TerminalView:new()
         -- Text Formatting
         ["m"] = function(args)
             local i = 1
+            args[1] = args[1] or 0
             while args[i] do
                 local arg = args[i]
 
                 if arg == 0 then
                     self.fg = style.text
                     self.bg = style.background
+
                 elseif arg == 39 then
                     self.fg = style.text
                 elseif arg == 49 then
                     self.bg = style.background
-                
+
                 elseif arg == 7 then
                     local temp = self.fg
                     self.fg = self.bg
@@ -148,6 +152,7 @@ function TerminalView:new()
                 else
                     core.log("Unhandled formatting option: " .. arg)
                 end
+                core.log("Formatting Mode: " .. arg)
                 i = i + 1
             end
         end,
@@ -155,12 +160,13 @@ function TerminalView:new()
         -- Query State
         ["n"] = function(args)
             self.proc:write(ESC .. self.cursor_row .. ";" .. self.cursor_col .. "R")
-        end
+        end,
     }
 
     self.handler = {
         -- Basic ASCII
         ["[%g ]"] = function(char)
+            core.log(char)
             self.buffer[self.cursor_col][self.cursor_row] = self:new_formatted_char(char)
             self.cursor_col = self.cursor_col + 1
             if self.cursor_col > self.columns then
@@ -179,6 +185,19 @@ function TerminalView:new()
         end,
         ["\a"] = function()
             core.log("BELL!")
+        end,
+
+        -- Cimple Cursor Positioning
+        [ESC .. "M"] = function()
+            self.cursor_row = self.cursor_row - 1
+        end,
+        [ESC .. "7"] = function()
+            self.saved_cursor.col = self.cursor_col
+            self.saved_cursor.row = self.cursor_row
+        end,
+        [ESC .. "8"] = function()
+            self.cursor_col = self.saved_cursor.col
+            self.cursor_row = self.saved_cursor.row
         end,
 
         -- Enabling/Disabling stuff...
@@ -217,10 +236,17 @@ function TerminalView:new()
 
         -- Weird escape sequences that don't follow the normal pattern.
         [ESC .. "%(B"] = function()
-            core.log("ASCII CHARACTER SET")
+            -- core.log("ASCII CHARACTER SET")
         end,
-        [ESC .. "[=\\P>]"] = function()
-            core.log("Not yet supported!")
+        [ESC .. "%[>(%d*)c"] = function(str)
+            local n = tonumber(str, 10)
+            if not n or n == 0 then
+                self.proc:write(ESC .. "[0;0;0c")
+            end
+            core.log("TERMINAL MODE: " .. n)
+        end,
+        [ESC .. "[>=]"] = function()
+            core.log("Please don't crash!")
         end,
     }
 end
@@ -248,6 +274,7 @@ end
 
 function TerminalView:try_close(...)
     self.proc:kill()
+    self.log:close()
     TerminalView.super.try_close(self, ...)
 end
 
@@ -263,6 +290,7 @@ function TerminalView:update(...)
     TerminalView.super.update(self, ...)
     local output = assert(self.proc:read_stdout())
     if output:len() > 0 then
+        self.log:write(output)
         self:display_string(output)
     end
 
@@ -333,7 +361,7 @@ function TerminalView:display_string(str)
                 end
             end
             command = eat("%g")
-            core.log(sanitise(command) .. " " .. (args[1] or 1))
+            -- core.log(sanitise(command) .. " " .. (args[1] or 1))
             local handler = self.escape_handler[command]
             if handler then
                 handler(args)
@@ -358,13 +386,14 @@ function TerminalView:draw()
     for row = 1, self.rows do
         for col = 1, self.columns do
             local cell = self.buffer[col][row]
-            renderer.draw_rect(offx + (col - 1) * col_width, offy + (row - 1) * row_height, col_width, row_height, cell.bg)
+            renderer.draw_rect(offx + (col - 1) * col_width, offy + (row - 1) * row_height, col_width + 1, row_height + 1, cell.bg)
         end
     end
 
     if self.cursor_visible then
         renderer.draw_rect(offx + (self.cursor_col - 1) * col_width, offy + row_height * (self.cursor_row - 1), col_width, row_height, style.caret);
     end
+
     -- if not self.cursor_visible then
     --     renderer.draw_rect(offx + (self.cursor_col - 1) * col_width + 1, offy + row_height * (self.cursor_row - 1) + 1, col_width - 2, row_height - 2, style.background)
     -- end
@@ -391,7 +420,7 @@ command.add(nil, {
 
 command.add(predicate, {
     ["terminal:return"] = function()
-        core.active_view:input_string("\n")
+        core.active_view:input_string("\r")
     end,
     ["terminal:up"] = function()
         core.active_view:input_string(ESC .. "OA")
@@ -406,7 +435,7 @@ command.add(predicate, {
         core.active_view:input_string(ESC .. "OD")
     end,
     ["terminal:backspace"] = function()
-        core.active_view:input_string("\b")
+        core.active_view:input_string("\x7f")
     end,
     ["terminal:escape"] = function()
         core.active_view:input_string("\x1b")
