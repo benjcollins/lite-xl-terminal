@@ -35,10 +35,10 @@ function TerminalView:new()
     self.cursor_row = 1
     self.last_blink = os.time()
     self.cursor_visible = true
-    self.blink_cursor = true
+    self.blink_cursor = false
     self.fg = style.text
     self.bg = style.background
-    self.inverted = false
+    self.title = "Terminal"
 
     for col = 1, self.columns do
         self.buffer[col] = {}
@@ -63,8 +63,14 @@ function TerminalView:new()
             self.cursor_col = self.cursor_col - (args[1] or 1)
         end,
         ["H"] = function(args)
+            self.cursor_row = args[1] or 1
+            self.cursor_col = args[2] or 1
+        end,
+        ["G"] = function(args)
             self.cursor_col = args[1] or 1
-            self.cursor_row = args[2] or 1
+        end,
+        ["d"] = function(args)
+            self.cursor_row = args[1] or 1
         end,
 
         -- Text Modification
@@ -111,13 +117,26 @@ function TerminalView:new()
             local i = 1
             while args[i] do
                 local arg = args[i]
+
                 if arg == 0 then
                     self.fg = style.text
                     self.bg = style.background
+                elseif arg == 39 then
+                    self.fg = style.text
+                elseif arg == 49 then
+                    self.bg = style.background
+                
                 elseif arg == 7 then
-                    self.inverted = true
-                elseif arg == 27 then
-                    self.inverted = false
+                    local temp = self.fg
+                    self.fg = self.bg
+                    self.bg = temp
+
+                -- elseif arg == 27 and self.inverted then
+                --     local temp = self.fg
+                --     self.fg = self.bg
+                --     self.bg = temp
+                --     self.inverted = false
+
                 elseif arg > 29 and arg < 38 then
                     self.fg = COLORS[arg - 29].dark
                 elseif arg > 39 and arg < 48 then
@@ -126,6 +145,8 @@ function TerminalView:new()
                     self.fg = COLORS[arg - 89].bright
                 elseif arg > 99 and arg < 108 then
                     self.bg = COLORS[arg - 99].bright
+                else
+                    core.log("Unhandled formatting option: " .. arg)
                 end
                 i = i + 1
             end
@@ -153,6 +174,7 @@ function TerminalView:new()
 
         -- Enabling/Disabling stuff...
         [ESC .. "%[%?(%d+)h"] = function(option)
+            option = tonumber(option)
             if option == 12 then
                 self.blink_cursor = true
                 self.last_blink = os.time()
@@ -163,6 +185,7 @@ function TerminalView:new()
             end
         end,
         [ESC .. "%[%?(%d+)l"] = function(option)
+            option = tonumber(option)
             if option == 12 then
                 self.blink_cursor = false
                 self.cursor_visible = true
@@ -174,9 +197,17 @@ function TerminalView:new()
             end
         end,
 
+        -- Set window title
+        [ESC .. "%]0;([^\a]+)\a"] = function(title)
+            self.title = title
+        end,
+
         -- Weird escape sequences that don't follow the normal pattern.
-        [ESC .. "%]0;"] = function()
-            core.log("WTF!")
+        [ESC .. "%(B"] = function()
+            core.log("ASCII CHARACTER SET")
+        end,
+        [ESC .. "="] = function()
+            core.log("KEYPAD APPLICATION MODE")
         end,
     }
 end
@@ -208,14 +239,14 @@ function TerminalView:try_close(...)
 end
 
 function TerminalView:get_name()
-    return "Terminal"
+    return self.title
 end
 
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
-    local output = self.proc:read_stdout()
-    if output:len() > 0 then
-        core.log(output)
+    local output = assert(self.proc:read_stdout())
+    if output and output:len() > 0 then
+        core.log("")
         self:display_string(output)
     end
 
@@ -290,7 +321,8 @@ function TerminalView:display_string(str)
             end
         end
         if not found then
-            core.log("ERROR: " .. string.byte(str, i, i) .. ", " .. str:sub(i, str:len()))
+            -- core.log("ERROR: " .. i)
+            core.log("ERROR: " .. str:sub(i, str:len()))
             return
         end
     end
@@ -306,14 +338,16 @@ function TerminalView:draw()
     for row = 1, self.rows do
         for col = 1, self.columns do
             local cell = self.buffer[col][row]
-            renderer.draw_rect(offx + (col - 1) * col_width, offy + (row - 1) * row_height, row_height, col_width, cell.bg)
+            renderer.draw_rect(offx + (col - 1) * col_width, offy + (row - 1) * row_height, col_width, row_height, cell.bg)
         end
     end
 
-    renderer.draw_rect(offx + (self.cursor_col - 1) * col_width, offy + row_height * (self.cursor_row - 1), col_width, row_height, style.caret);
-    if not self.cursor_visible then
-        renderer.draw_rect(offx + (self.cursor_col - 1) * col_width + 1, offy + row_height * (self.cursor_row - 1) + 1, col_width - 2, row_height - 2, style.background)
+    if self.cursor_visible then
+        renderer.draw_rect(offx + (self.cursor_col - 1) * col_width, offy + row_height * (self.cursor_row - 1), col_width, row_height, style.caret);
     end
+    -- if not self.cursor_visible then
+    --     renderer.draw_rect(offx + (self.cursor_col - 1) * col_width + 1, offy + row_height * (self.cursor_row - 1) + 1, col_width - 2, row_height - 2, style.background)
+    -- end
 
     for row = 1, self.rows do
         for col = 1, self.columns do
@@ -354,6 +388,12 @@ command.add(predicate, {
     ["terminal:backspace"] = function()
         core.active_view:input_string("\b")
     end,
+    ["terminal:escape"] = function()
+        core.active_view:input_string("\x1b")
+    end,
+    ["terminal:tab"] = function()
+        core.active_view:input_string("\t")
+    end,
 })
 
 keymap.add({
@@ -363,6 +403,8 @@ keymap.add({
     ["down"] = "terminal:down",
     ["left"] = "terminal:left",
     ["right"] = "terminal:right",
+    ["escape"] = "terminal:escape",
+    ["tab"] = "terminal:tab",
 
     ["ctrl+t"] = "terminal:new",
 })
