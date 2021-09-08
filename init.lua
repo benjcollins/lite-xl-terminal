@@ -151,6 +151,11 @@ function TerminalView:new()
                 i = i + 1
             end
         end,
+
+        -- Query State
+        ["n"] = function(args)
+            self.proc:write(ESC .. self.cursor_row .. ";" .. self.cursor_col .. "R")
+        end
     }
 
     self.handler = {
@@ -197,16 +202,20 @@ function TerminalView:new()
             end
         end,
 
-        -- Set window title
-        [ESC .. "%]0;([^\a]+)\a"] = function(title)
-            self.title = title
+        -- Operating System Command
+        [ESC .. "%](%d+);([^\a]+)\a"] = function(command, str)
+            if tonumber(command) == 0 then
+                self.title = str
+            else
+                core.log("OSC " .. command .. ": " .. str)
+            end
         end,
 
         -- Weird escape sequences that don't follow the normal pattern.
         [ESC .. "%(B"] = function()
             core.log("ASCII CHARACTER SET")
         end,
-        [ESC .. "[=\\P]"] = function()
+        [ESC .. "[=\\P>]"] = function()
             core.log("Not yet supported!")
         end,
     }
@@ -242,6 +251,10 @@ function TerminalView:get_name()
     return self.title
 end
 
+local function sanitise(str)
+    return str:gsub("%%", "%%%%")
+end
+
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
     local output = assert(self.proc:read_stdout())
@@ -263,10 +276,6 @@ end
 
 function TerminalView:input_string(str)
     self.proc:write(str)
-end
-
-local function sanitise(str)
-    return str:gsub("%%", "%%%%")
 end
 
 function TerminalView:display_string(str)
@@ -320,12 +329,12 @@ function TerminalView:display_string(str)
                 end
             end
             command = eat("%g")
-            core.log(command .. " " .. (args[1] or 1))
+            core.log(sanitise(command) .. " " .. (args[1] or 1))
             local handler = self.escape_handler[command]
             if handler then
                 handler(args)
             else
-                core.log("Missing handler for escape sequence " .. command)
+                core.log("Missing handler for escape sequence " .. sanitise(command))
             end
         end
         if not found then
