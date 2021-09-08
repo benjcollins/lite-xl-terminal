@@ -20,7 +20,7 @@ int main() {
         size_t length;
 
         while (1) {
-            poll(&fds[0], 2, 0);
+            poll(&fds[0], 2, -1);
             if (fds[1].revents & POLLIN != 0) {
                 length = read(STDIN_FILENO, &buffer[0], BUFFER_SIZE);
                 write(master, &buffer[0], length);
@@ -31,11 +31,7 @@ int main() {
             }
         }
     } else {
-        // execl("/usr/bin/python3", "python3", NULL);
-        // clearenv();
-        // unsetenv("PROMPT_COMMAND");
         setenv("TERM", "xterm-256color", 1);
-        // setenv("PS1", "", 1);
         execl("/bin/bash", "bash", NULL);
     }
 }
