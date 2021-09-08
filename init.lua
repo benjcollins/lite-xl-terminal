@@ -206,8 +206,8 @@ function TerminalView:new()
         [ESC .. "%(B"] = function()
             core.log("ASCII CHARACTER SET")
         end,
-        [ESC .. "="] = function()
-            core.log("KEYPAD APPLICATION MODE")
+        [ESC .. "[=\\P]"] = function()
+            core.log("Not yet supported!")
         end,
     }
 end
@@ -304,6 +304,11 @@ function TerminalView:display_string(str)
                 break
             end
         end
+        if not found and str:sub(i, i):byte() > 127 then
+            i = i + 1
+            core.log("UTF8")
+            found = true
+        end
         if not found and eat("\x1b%[") then
             found = true
             args = {}
@@ -324,7 +329,6 @@ function TerminalView:display_string(str)
             end
         end
         if not found then
-            -- core.log("ERROR: " .. i)
             core.log("ERROR: " .. sanitise(str:sub(i, str:len())))
             return
         end
