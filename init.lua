@@ -51,16 +51,16 @@ function TerminalView:new()
 
         -- Cursor Positioning
         ["A"] = function(args)
-            self.cursor_row = self.cursor_row - (args[1] or 1)
+            self.cursor_row = math.max(1, self.cursor_row - (args[1] or 1))
         end,
         ["B"] = function(args)
-            self.cursor_row = self.cursor_row + (args[1] or 1)
+            self.cursor_row = math.min(self.rows, self.cursor_row + (args[1] or 1))
         end,
         ["C"] = function(args)
-            self.cursor_col = self.cursor_col + (args[1] or 1)
+            self.cursor_col = math.min(self.columns, self.cursor_col + (args[1] or 1))
         end,
         ["D"] = function(args)
-            self.cursor_col = self.cursor_col - (args[1] or 1)
+            self.cursor_col = math.max(1, self.cursor_col - (args[1] or 1))
         end,
         ["H"] = function(args)
             self.cursor_row = args[1] or 1
@@ -74,6 +74,24 @@ function TerminalView:new()
         end,
 
         -- Text Modification
+        ["@"] = function(args)
+            local count = args[1] or 1
+            for i = self.columns, self.cursor_col + count, -1 do
+                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
+            end
+            for i = self.cursor_col, self.cursor_col + count - 1 do
+                self.buffer[i][self.cursor_row].value = " "
+            end
+        end,
+        ["P"] = function(args)
+            local count = args[1] or 1
+            for i = self.cursor_col + count, self.columns do
+                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
+            end
+            for i = self.columns - count, self.columns do
+                self.buffer[i][self.cursor_row].value = " "
+            end
+        end,
         ["K"] = function(args)
             self:delete_current_line(args[1] or 0)
         end,
@@ -91,24 +109,6 @@ function TerminalView:new()
                 for col = 1, self.columns do
                     self.buffer[col][row] = self:new_formatted_char(" ")
                 end
-            end
-        end,
-        ["@"] = function(args)
-            local count = args[1] or 1
-            for i = self.columns, self.cursor_col + count, -1 do
-                self.buffer[i][self.cursor_row] = self.buffer[i - count][self.cursor_row]
-            end
-            for i = self.cursor_col, self.cursor_col + count - 1 do
-                self.buffer[i][self.cursor_row].value = " "
-            end
-        end,
-        ["P"] = function(args)
-            local count = args[1] or 1
-            for i = self.cursor_col + count, self.columns do
-                self.buffer[i - count][self.cursor_row] = self.buffer[i][self.cursor_row]
-            end
-            for i = self.columns - count, self.columns do
-                self.buffer[i][self.cursor_row].value = " "
             end
         end,
 
@@ -163,6 +163,10 @@ function TerminalView:new()
         ["[%g ]"] = function(char)
             self.buffer[self.cursor_col][self.cursor_row] = self:new_formatted_char(char)
             self.cursor_col = self.cursor_col + 1
+            if self.cursor_col > self.columns then
+                self.cursor_col = 1
+                self.cursor_row = self.cursor_row + 1
+            end
         end,
         ["\n"] = function()
             self.cursor_row = self.cursor_row + 1
