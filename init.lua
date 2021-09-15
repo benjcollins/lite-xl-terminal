@@ -43,7 +43,6 @@ function TerminalView:new()
       stdin = process.REDIRECT_PIPE,
       stdout = process.REDIRECT_PIPE,
     }))
-    self.alive = self.proc ~= nil
 
     self.columns = 80
     self.rows = 24
