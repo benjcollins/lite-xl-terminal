@@ -7,6 +7,13 @@ local config = require "core.config"
 local style = require "core.style"
 local View = require "core.view"
 
+local process = require "process"
+
+config.terminal = {
+  shell = os.getenv("SHELL") or "/bin/sh",
+  shell_args = {}
+}
+
 local TerminalView = View:extend()
 
 local ESC = "\x1b"
@@ -22,11 +29,21 @@ local COLORS = {
     { ["dark"] = { common.color "#d3d7cf" }, ["bright"] = { common.color "#eeeeec" }, ["name"] = "white" },
 }
 
+local PASSTHROUGH_PATH = USERDIR .. "/plugins/terminal/terminal"
+
 function TerminalView:new()
     TerminalView.super.new(self)
     self.scrollable = true
 
-    self.proc = assert(process.start({ DATADIR .. "/plugins/terminal/terminal" }, {}))
+    local args = { PASSTHROUGH_PATH, config.terminal.shell }
+    for _, arg in ipairs(config.terminal.shell_args) do
+      table.insert(args, arg)
+    end
+    self.proc = assert(process.start(args, {
+      stdin = process.REDIRECT_PIPE,
+      stdout = process.REDIRECT_PIPE,
+    }))
+    self.alive = self.proc ~= nil
 
     self.columns = 80
     self.rows = 24
