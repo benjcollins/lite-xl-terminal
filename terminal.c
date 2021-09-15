@@ -1,14 +1,13 @@
 #include <pty.h>
-#include <termios.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <poll.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define BUFFER_SIZE 256
 
-int main() {
+int main(int argc, char **argv) {
     int master;
 
     pid_t pid = forkpty(&master, NULL, NULL, NULL);
@@ -42,6 +41,7 @@ int main() {
         }
     } else {
         setenv("TERM", "xterm-256color", 1);
-        execl("/bin/bash", "bash", NULL);
+        execvp(argv[1], &argv[1]);
+        return errno;
     }
 }
