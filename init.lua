@@ -7,6 +7,8 @@ local config = require "core.config"
 local style = require "core.style"
 local View = require "core.view"
 
+local process = require "process"
+
 local TerminalView = View:extend()
 
 local ESC = "\x1b"
@@ -22,11 +24,18 @@ local COLORS = {
     { ["dark"] = { common.color "#d3d7cf" }, ["bright"] = { common.color "#eeeeec" }, ["name"] = "white" },
 }
 
+local CONNECT_MSG = "[Starting terminal...]\r\n\n"
+local TERMINATION_MSG = "\r\n\n[Process ended with status %d]"
+
 function TerminalView:new()
     TerminalView.super.new(self)
     self.scrollable = true
 
-    self.proc = assert(process.start({ DATADIR .. "/plugins/terminal/terminal" }, {}))
+    self.proc = assert(process.start({ USERDIR .. "/plugins/terminal/terminal" }, {
+      stdin = process.REDIRECT_PIPE,
+      stdout = process.REDIRECT_PIPE,
+    }))
+    self.alive = self.proc ~= nil
 
     self.columns = 80
     self.rows = 24
@@ -249,6 +258,8 @@ function TerminalView:new()
             core.log("Please don't crash!")
         end,
     }
+
+    self:display_string(CONNECT_MSG)
 end
 
 function TerminalView:delete_current_line(mode)
@@ -288,7 +299,17 @@ end
 
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
-    local output = assert(self.proc:read_stdout())
+    local output = ""
+    local currently_alive = self.proc:running()
+    if currently_alive then
+        output = assert(self.proc:read_stdout())
+    else
+        if currently_alive ~= self.alive then
+            self.alive = currently_alive
+            output = string.format(TERMINATION_MSG, self.proc:returncode())
+        end
+    end
+
     if output:len() > 0 then
         self.log:write(output)
         self:display_string(output)
