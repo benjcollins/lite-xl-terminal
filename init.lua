@@ -31,7 +31,10 @@ function TerminalView:new()
     TerminalView.super.new(self)
     self.scrollable = true
 
-    self.proc = assert(process.start({ USERDIR .. "/plugins/terminal/terminal" }, {}))
+    self.proc = assert(process.start({ USERDIR .. "/plugins/terminal/terminal" }, {
+      stdin = process.REDIRECT_PIPE,
+      stdout = process.REDIRECT_PIPE,
+    }))
     self.alive = self.proc ~= nil
 
     self.columns = 80
