@@ -449,17 +449,22 @@ end
 -- this is a shared session used by terminal:view
 -- it is not touched by "terminal:open-here"
 local shared_view = nil
+local function shared_view_exists()
+    return shared_view and core.root_view.root_node:get_node_for_view(shared_view)
+end
 command.add(nil, {
     ["terminal:new"] = function()
         local node = core.root_view:get_active_node()
-        if not shared_view or not shared_view.alive then
+        if not shared_view_exists() then
             shared_view = TerminalView()
         end
         node:split(config.terminal.split_direction, shared_view, { y = true }, true)
         core.set_active_view(shared_view)
     end,
     ["terminal:toggle"] = function()
-        if shared_view then
+        if not shared_view_exists() then
+            command.perform "terminal:new"
+        else
             shared_view.visible = not shared_view.visible
             core.set_active_view(shared_view)
         end
@@ -508,4 +513,5 @@ keymap.add({
     ["tab"] = "terminal:tab",
 
     ["ctrl+t"] = "terminal:new",
+    ["ctrl+`"] = "terminal:toggle"
 })
