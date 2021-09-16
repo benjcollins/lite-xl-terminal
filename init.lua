@@ -30,7 +30,7 @@ local COLORS = {
     { ["dark"] = { common.color "#d3d7cf" }, ["bright"] = { common.color "#eeeeec" }, ["name"] = "white" },
 }
 
-local PASSTHROUGH_PATH = USERDIR .. "/plugins/terminal/terminal"
+local PASSTHROUGH_PATH = USERDIR .. "/plugins/lite-xl-terminal/terminal"
 local CONNECT_MSG = "[Starting terminal...]\r\n\n"
 local TERMINATION_MSG = "\r\n\n[Process ended with status %d]"
 
@@ -53,14 +53,17 @@ function TerminalView:new()
     self.cursor_col = 1
     self.cursor_row = 1
     self.saved_cursor = { col = 1, row = 1 }
-    self.last_blink = os.time()
+    self.last_blink = system.get_time()
     self.cursor_visible = true
-    self.blink_cursor = false
+    self.blink_cursor = true
+    self.blink_time = 0.2
     self.fg = style.text
     self.bg = style.background
     self.title = "Terminal"
     self.log = io.open("log.txt", "w")
     self.visible = true
+    self.scroll_region_start = 1
+    self.scroll_region_end = self.rows
 
     for col = 1, self.columns do
         self.buffer[col] = {}
@@ -134,6 +137,11 @@ function TerminalView:new()
             end
         end,
 
+        ["r"] = function(args)
+            self.scroll_region_start = (args[1] or 1)
+            self.scroll_region_end = (args[2] or self.rows)
+        end,
+
         -- Text Formatting
         ["m"] = function(args)
             local i = 1
@@ -186,7 +194,6 @@ function TerminalView:new()
     self.handler = {
         -- Basic ASCII
         ["[%g ]"] = function(char)
-            core.log(char)
             self.buffer[self.cursor_col][self.cursor_row] = self:new_formatted_char(char)
             self.cursor_col = self.cursor_col + 1
             if self.cursor_col > self.columns then
@@ -195,7 +202,18 @@ function TerminalView:new()
             end
         end,
         ["\n"] = function()
-            self.cursor_row = self.cursor_row + 1
+            if self.cursor_row == self.scroll_region_end then
+                for row = self.scroll_region_start + 1, self.scroll_region_end do
+                    for col = 1, self.columns do
+                        self.buffer[col][row - 1] = self.buffer[col][row]
+                    end
+                end
+                for col = 1, self.columns do
+                    self.buffer[col][self.scroll_region_end] = self:new_formatted_char(" ")
+                end
+            else
+                self.cursor_row = self.cursor_row + 1
+            end
         end,
         ["\b"] = function()
             self.cursor_col = self.cursor_col - 1
@@ -207,9 +225,20 @@ function TerminalView:new()
             core.log("BELL!")
         end,
 
-        -- Cimple Cursor Positioning
+        -- Simple Cursor Positioning
         [ESC .. "M"] = function()
-            self.cursor_row = self.cursor_row - 1
+            if self.cursor_row == self.scroll_region_start then
+                for row = self.scroll_region_end, self.scroll_region_start + 1, -1 do
+                    for col = 1, self.columns do
+                        self.buffer[col][row] = self.buffer[col][row - 1]
+                    end
+                end
+                for col = 1, self.columns do
+                    self.buffer[col][self.scroll_region_start] = self:new_formatted_char(" ")
+                end
+            else
+                self.cursor_row = self.cursor_row - 1
+            end
         end,
         [ESC .. "7"] = function()
             self.saved_cursor.col = self.cursor_col
@@ -329,8 +358,8 @@ function TerminalView:update(...)
         self:display_string(output)
     end
 
-    local now = os.time()
-    if now > self.last_blink and self.blink_cursor then
+    local now = system.get_time()
+    if now > self.last_blink + self.blink_time and self.blink_cursor then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
         core.redraw = true
@@ -396,7 +425,6 @@ function TerminalView:display_string(str)
                 end
             end
             command = eat("%g")
-            -- core.log(sanitise(command) .. " " .. (args[1] or 1))
             local handler = self.escape_handler[command]
             if handler then
                 handler(args)
@@ -428,10 +456,6 @@ function TerminalView:draw()
     if self.cursor_visible then
         renderer.draw_rect(offx + (self.cursor_col - 1) * col_width, offy + row_height * (self.cursor_row - 1), col_width, row_height, style.caret);
     end
-
-    -- if not self.cursor_visible then
-    --     renderer.draw_rect(offx + (self.cursor_col - 1) * col_width + 1, offy + row_height * (self.cursor_row - 1) + 1, col_width - 2, row_height - 2, style.background)
-    -- end
 
     for row = 1, self.rows do
         for col = 1, self.columns do

@@ -32,12 +32,14 @@ int main(int argc, char **argv) {
                 write(STDOUT_FILENO, &buffer[0], length);
             }
 
-            if (fds[0].revents & POLLERR || fds[1].revents & POLLERR)
-                return 1;
-
-            waitpid(pid, &status, WNOHANG);
-            if (WIFEXITED(status))
+            if (fds[0].revents & POLLHUP || fds[1].revents & POLLHUP) {
+                waitpid(pid, &status, 0);
                 return WEXITSTATUS(status);
+            }
+
+             if (fds[0].revents & POLLERR || fds[1].revents & POLLERR)
+                 return 1;
+                 
         }
     } else {
         setenv("TERM", "xterm-256color", 1);
