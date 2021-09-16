@@ -52,9 +52,10 @@ function TerminalView:new()
     self.cursor_col = 1
     self.cursor_row = 1
     self.saved_cursor = { col = 1, row = 1 }
-    self.last_blink = os.time()
+    self.last_blink = system.get_time()
     self.cursor_visible = true
-    self.blink_cursor = false
+    self.blink_cursor = true
+    self.blink_time = 0.2
     self.fg = style.text
     self.bg = style.background
     self.title = "Terminal"
@@ -352,8 +353,8 @@ function TerminalView:update(...)
         self:display_string(output)
     end
 
-    local now = os.time()
-    if now > self.last_blink and self.blink_cursor then
+    local now = system.get_time()
+    if now > self.last_blink + self.blink_time and self.blink_cursor then
         self.cursor_visible = not self.cursor_visible
         self.last_blink = now
         core.redraw = true
