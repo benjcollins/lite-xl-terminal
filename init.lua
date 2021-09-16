@@ -11,7 +11,8 @@ local process = require "process"
 
 config.terminal = {
   shell = os.getenv("SHELL") or "/bin/sh",
-  shell_args = {}
+  shell_args = {},
+  split_direction = "down"
 }
 
 local TerminalView = View:extend()
@@ -60,6 +61,7 @@ function TerminalView:new()
     self.bg = style.background
     self.title = "Terminal"
     self.log = io.open("log.txt", "w")
+    self.visible = true
     self.scroll_region_start = 1
     self.scroll_region_end = self.rows
 
@@ -337,6 +339,9 @@ end
 
 function TerminalView:update(...)
     TerminalView.super.update(self, ...)
+    local dest = self.visible and (self.old_y or core.root_view.size.y / 2) or 0
+    self:move_towards(self.size, "y", dest)
+
     local output = ""
     local currently_alive = self.proc:running()
     if currently_alive then
@@ -465,8 +470,30 @@ local function predicate()
     return getmetatable(core.active_view) == TerminalView
 end
 
+-- this is a shared session used by terminal:view
+-- it is not touched by "terminal:open-here"
+local shared_view = nil
+local function shared_view_exists()
+    return shared_view and core.root_view.root_node:get_node_for_view(shared_view)
+end
 command.add(nil, {
     ["terminal:new"] = function()
+        local node = core.root_view:get_active_node()
+        if not shared_view_exists() then
+            shared_view = TerminalView()
+        end
+        node:split(config.terminal.split_direction, shared_view, { y = true }, true)
+        core.set_active_view(shared_view)
+    end,
+    ["terminal:toggle"] = function()
+        if not shared_view_exists() then
+            command.perform "terminal:new"
+        else
+            shared_view.visible = not shared_view.visible
+            core.set_active_view(shared_view)
+        end
+    end,
+    ["terminal:open-here"] = function()
         local node = core.root_view:get_active_node()
         node:add_view(TerminalView())
     end
@@ -510,4 +537,5 @@ keymap.add({
     ["tab"] = "terminal:tab",
 
     ["ctrl+t"] = "terminal:new",
+    ["ctrl+`"] = "terminal:toggle"
 })
