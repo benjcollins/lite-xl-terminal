@@ -482,7 +482,7 @@ command.add(nil, {
         if not shared_view_exists() then
             shared_view = TerminalView()
         end
-        node:split(config.terminal.split_direction, shared_view, { y = true }, true)
+        node:split(config.terminal.split_direction, shared_view)
         core.set_active_view(shared_view)
     end,
     ["terminal:toggle"] = function()
