@@ -10,7 +10,7 @@ local View = require "core.view"
 local process = require "process"
 
 config.terminal = {
-  shell = os.getenv("SHELL") or "/bin/sh",
+  shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
   shell_args = {},
   split_direction = "down"
 }
