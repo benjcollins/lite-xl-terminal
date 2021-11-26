@@ -1,3 +1,5 @@
 terminal
+*.exe
+*.dll
 log.txt
 .vscode/*
