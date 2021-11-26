@@ -1,4 +1,11 @@
-CFLAGS=-lutil
+CFLAGS=-O2
 
-terminal: terminal.c
-	$(CC) -o terminal terminal.c $(CFLAGS)
+ifeq ($(OS),Windows_NT)
+	SRC=win/terminal.c
+else
+	SRC=terminal.c
+	CFLAGS+=-lutil
+endif
+
+terminal: ${SRC}
+	$(CC) -o $@ $< $(CFLAGS)
