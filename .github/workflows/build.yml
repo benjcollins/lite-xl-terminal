@@ -1,0 +1,52 @@
+name: Build
+
+on: push
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      winpty: winpty-0.4.3-msys2-2.7.0-ia32
+    steps:
+      - uses: actions/checkout@v2
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          install: mingw-w64-i686-gcc mingw-w64-i686-make
+      - name: Download winpty
+        run: |
+          curl -L "https://github.com/rprichard/winpty/releases/download/0.4.3/${{ env.winpty }}.tar.gz" | tar -xzf -
+          cp ${{ env.winpty }}/share/doc/winpty/LICENSE WINPTY_LICENSE
+          cp ${{ env.winpty }}/bin/* .
+      - name: Compile
+        run: CFLAGS="-I${{ env.winpty }}/include -L${{ env.winpty }}/bin" mingw32-make release
+      - uses: actions/upload-artifact@v2
+        with:
+          name: Windows build
+          path: |
+            init.lua
+            README.md
+            terminal.exe
+            winpty-agent.exe
+            winpty-debugserver.exe
+            winpty.dll
+            WINPTY_LICENSE
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install packages
+        run: sudo apt install musl musl-tools musl-dev gcc make
+      - name: Compile
+        run: CC=musl-gcc CFLAGS=-static make release
+      - uses: actions/upload-artifact@v2
+        with:
+          name: Linux build
+          path: |
+            init.lua
+            README.md
+            terminal
