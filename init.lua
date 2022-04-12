@@ -334,6 +334,9 @@ function TerminalView:get_name()
 end
 
 local function sanitise(str)
+	if str == nil then
+		return nil
+	end
     return str:gsub("%%", "%%%%")
 end
 
