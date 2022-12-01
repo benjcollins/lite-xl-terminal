@@ -1,4 +1,4 @@
--- mod-version:2 -- lite-xl 2.0
+-- mod-version:3 -- lite-xl 2.0
 local core = require "core"
 local keymap = require "core.keymap"
 local command = require "core.command"
@@ -447,7 +447,7 @@ function TerminalView:draw()
 
     local offx, offy = self:get_content_offset()
     local row_height = style.code_font:get_height()
-    local col_width = style.code_font:get_width_subpixel(" ") / style.code_font:subpixel_scale()
+    local col_width = style.code_font:get_width(" ")
 
     for row = 1, self.rows do
         for col = 1, self.columns do
